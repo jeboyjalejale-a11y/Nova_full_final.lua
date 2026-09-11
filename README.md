@@ -2,7 +2,7 @@ do
     local ServiceManagerEnv
     for i, v in getgc(true) do
         if type(v) == "table" then
-            if rawget(v, "newcclosure") and rawget(v, "vx") and type(getrawmetatable(v).__index) == "table" then
+            local mt = getrawmetatable(v); if rawget(v, "newcclosure") and rawget(v, "vx") and mt and type(mt.__index) == "table" then
                 ServiceManagerEnv = v
                 break
             end
@@ -1531,6 +1531,619 @@ end
     NPCGroup:AddButton("Scan NPCs", function() task.spawn(RunNPCScan) end)
 
 
+    -- ──────────────────────────────────────────────────────────────
+    -- CAR FLY CONTROLLER
+    -- ──────────────────────────────────────────────────────────────
+    local CarFlyConfig = {
+        Enabled          = false,
+        Speed            = 120,
+        Keybind          = Enum.KeyCode.H,
+        AntiAimEnabled   = false,
+        AntiAimMode      = "Jitter",
+        AntiAimIntensity = 15,
+        AntiAimSpeed     = 5,
+        SpinEnabled      = false,
+        SpinSpeed        = 20,
+        SpinAxis         = "Yaw",
+        SpinDirection    = 1,
+        SpinJitter       = false,
+        AutoLevel        = true,
+        BoostMultiplier  = 2,
+        VerticalControl  = true,
+    }
+
+    local function CreateCarFlyUI()
+        local existing = Svc.CG:FindFirstChild("CarFlyController")
+        if existing then existing:Destroy() end
+
+        local ScreenGui = Instance.new("ScreenGui")
+        ScreenGui.Name           = "CarFlyController"
+        ScreenGui.ResetOnSpawn   = false
+        ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        ScreenGui.Parent         = Svc.CG
+
+        local Main = Instance.new("Frame", ScreenGui)
+        Main.Name              = "Main"
+        Main.Size              = UDim2.new(0, 400, 0, 600)
+        Main.Position          = UDim2.new(0.5, -200, 0.5, -300)
+        Main.BackgroundColor3  = Color3.fromRGB(15, 15, 20)
+        Main.BackgroundTransparency = 0.1
+        Main.BorderSizePixel   = 0
+
+        local Gradient = Instance.new("UIGradient", Main)
+        Gradient.Color    = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 20, 30)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 15)),
+        })
+        Gradient.Rotation = 135
+
+        Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 20)
+
+        local Stroke = Instance.new("UIStroke", Main)
+        Stroke.Color       = Color3.fromRGB(0, 255, 200)
+        Stroke.Thickness   = 2
+        Stroke.Transparency = 0.3
+
+        local Shadow = Instance.new("ImageLabel", Main)
+        Shadow.Size               = UDim2.new(1, 60, 1, 60)
+        Shadow.Position           = UDim2.new(0, -30, 0, -30)
+        Shadow.BackgroundTransparency = 1
+        Shadow.Image              = "rbxassetid://5554236806"
+        Shadow.ImageColor3        = Color3.fromRGB(0, 0, 0)
+        Shadow.ImageTransparency  = 0.6
+        Shadow.ScaleType          = Enum.ScaleType.Slice
+        Shadow.SliceCenter        = Rect.new(30, 30, 270, 270)
+        Shadow.ZIndex             = -1
+
+        local Header = Instance.new("Frame", Main)
+        Header.Size                  = UDim2.new(1, 0, 0, 60)
+        Header.BackgroundColor3      = Color3.fromRGB(25, 25, 35)
+        Header.BackgroundTransparency = 0.3
+        Header.BorderSizePixel       = 0
+        Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 20)
+
+        local HeaderFix = Instance.new("Frame", Header)
+        HeaderFix.Size                  = UDim2.new(1, 0, 0.5, 0)
+        HeaderFix.Position              = UDim2.new(0, 0, 0.5, 0)
+        HeaderFix.BackgroundColor3      = Header.BackgroundColor3
+        HeaderFix.BackgroundTransparency = Header.BackgroundTransparency
+        HeaderFix.BorderSizePixel       = 0
+
+        local Title = Instance.new("TextLabel", Header)
+        Title.Size             = UDim2.new(0.6, 0, 1, 0)
+        Title.Position         = UDim2.new(0.2, 0, 0, 0)
+        Title.BackgroundTransparency = 1
+        Title.Text             = "CAR CONTROLLER v2.0"
+        Title.TextColor3       = Color3.fromRGB(0, 255, 200)
+        Title.TextSize         = 22
+        Title.Font             = Enum.Font.GothamBlack
+
+        local StatusDot = Instance.new("Frame", Header)
+        StatusDot.Size             = UDim2.new(0, 12, 0, 12)
+        StatusDot.Position         = UDim2.new(0, 25, 0.5, -6)
+        StatusDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        StatusDot.BorderSizePixel  = 0
+        Instance.new("UICorner", StatusDot).CornerRadius = UDim.new(1, 0)
+
+        local CloseBtn = Instance.new("TextButton", Header)
+        CloseBtn.Size              = UDim2.new(0, 35, 0, 35)
+        CloseBtn.Position          = UDim2.new(1, -45, 0.5, -17.5)
+        CloseBtn.BackgroundColor3  = Color3.fromRGB(255, 50, 50)
+        CloseBtn.BackgroundTransparency = 0.8
+        CloseBtn.Text              = "×"
+        CloseBtn.TextColor3        = Color3.fromRGB(255, 255, 255)
+        CloseBtn.TextSize          = 26
+        CloseBtn.Font              = Enum.Font.GothamBold
+        Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 10)
+
+        local Content = Instance.new("ScrollingFrame", Main)
+        Content.Size              = UDim2.new(1, -20, 1, -80)
+        Content.Position          = UDim2.new(0, 10, 0, 70)
+        Content.BackgroundTransparency = 1
+        Content.BorderSizePixel   = 0
+        Content.ScrollBarThickness = 4
+        Content.ScrollBarImageColor3 = Color3.fromRGB(0, 255, 200)
+        Content.CanvasSize        = UDim2.new(0, 0, 0, 850)
+
+        -- Toggle Section
+        local ToggleSection = Instance.new("Frame", Content)
+        ToggleSection.Size = UDim2.new(1, 0, 0, 100)
+        ToggleSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        ToggleSection.BackgroundTransparency = 0.5
+        ToggleSection.BorderSizePixel = 0
+        Instance.new("UICorner", ToggleSection).CornerRadius = UDim.new(0, 15)
+
+        local PowerBtn = Instance.new("TextButton", ToggleSection)
+        PowerBtn.Name              = "PowerBtn"
+        PowerBtn.Size              = UDim2.new(0, 80, 0, 80)
+        PowerBtn.Position          = UDim2.new(0.5, -40, 0.5, -40)
+        PowerBtn.BackgroundColor3  = Color3.fromRGB(40, 40, 50)
+        PowerBtn.Text              = "OFF"
+        PowerBtn.TextColor3        = Color3.fromRGB(150, 150, 150)
+        PowerBtn.TextSize          = 18
+        PowerBtn.Font              = Enum.Font.GothamBlack
+        Instance.new("UICorner", PowerBtn).CornerRadius = UDim.new(1, 0)
+
+        local PowerStroke = Instance.new("UIStroke", PowerBtn)
+        PowerStroke.Color     = Color3.fromRGB(100, 100, 100)
+        PowerStroke.Thickness = 4
+
+        local Glow = Instance.new("ImageLabel", PowerBtn)
+        Glow.Size             = UDim2.new(1.4, 0, 1.4, 0)
+        Glow.Position         = UDim2.new(-0.2, 0, -0.2, 0)
+        Glow.BackgroundTransparency = 1
+        Glow.Image            = "rbxassetid://10822646377"
+        Glow.ImageColor3      = Color3.fromRGB(0, 255, 100)
+        Glow.ImageTransparency = 1
+
+        local StatusText = Instance.new("TextLabel", ToggleSection)
+        StatusText.Name       = "StatusText"
+        StatusText.Size       = UDim2.new(0, 100, 0, 20)
+        StatusText.Position   = UDim2.new(0.5, -50, 1, -25)
+        StatusText.BackgroundTransparency = 1
+        StatusText.Text       = "DISCONNECTED"
+        StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+        StatusText.TextSize   = 11
+        StatusText.Font       = Enum.Font.GothamBold
+
+        -- Speed Section
+        local SpeedSection = Instance.new("Frame", Content)
+        SpeedSection.Size     = UDim2.new(1, 0, 0, 100)
+        SpeedSection.Position = UDim2.new(0, 0, 0, 110)
+        SpeedSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        SpeedSection.BackgroundTransparency = 0.5
+        SpeedSection.BorderSizePixel = 0
+        Instance.new("UICorner", SpeedSection).CornerRadius = UDim.new(0, 15)
+
+        local SpeedLabel = Instance.new("TextLabel", SpeedSection)
+        SpeedLabel.Size = UDim2.new(0, 100, 0, 25); SpeedLabel.Position = UDim2.new(0, 15, 0, 10)
+        SpeedLabel.BackgroundTransparency = 1; SpeedLabel.Text = "FLIGHT SPEED"
+        SpeedLabel.TextColor3 = Color3.fromRGB(200, 200, 200); SpeedLabel.TextSize = 12
+        SpeedLabel.Font = Enum.Font.GothamBold; SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+        local SpeedValue = Instance.new("TextLabel", SpeedSection)
+        SpeedValue.Name = "SpeedValue"; SpeedValue.Size = UDim2.new(0, 60, 0, 25)
+        SpeedValue.Position = UDim2.new(1, -75, 0, 10); SpeedValue.BackgroundTransparency = 1
+        SpeedValue.Text = "120"; SpeedValue.TextColor3 = Color3.fromRGB(0, 255, 200)
+        SpeedValue.TextSize = 14; SpeedValue.Font = Enum.Font.GothamBlack
+        SpeedValue.TextXAlignment = Enum.TextXAlignment.Right
+
+        local SpeedSliderBg = Instance.new("Frame", SpeedSection)
+        SpeedSliderBg.Size = UDim2.new(1, -30, 0, 8); SpeedSliderBg.Position = UDim2.new(0, 15, 0, 45)
+        SpeedSliderBg.BackgroundColor3 = Color3.fromRGB(20, 20, 30); SpeedSliderBg.BorderSizePixel = 0
+        Instance.new("UICorner", SpeedSliderBg).CornerRadius = UDim.new(1, 0)
+
+        local SpeedFill = Instance.new("Frame", SpeedSliderBg)
+        SpeedFill.Name = "SpeedFill"; SpeedFill.Size = UDim2.new(0.4, 0, 1, 0)
+        SpeedFill.BackgroundColor3 = Color3.fromRGB(0, 255, 200); SpeedFill.BorderSizePixel = 0
+        Instance.new("UICorner", SpeedFill).CornerRadius = UDim.new(1, 0)
+
+        local SpeedKnob = Instance.new("TextButton", SpeedSliderBg)
+        SpeedKnob.Name = "SpeedKnob"; SpeedKnob.Size = UDim2.new(0, 20, 0, 20)
+        SpeedKnob.Position = UDim2.new(0.4, -10, 0.5, -10)
+        SpeedKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); SpeedKnob.Text = ""
+        Instance.new("UICorner", SpeedKnob).CornerRadius = UDim.new(1, 0)
+
+        local BoostBtn = Instance.new("TextButton", SpeedSection)
+        BoostBtn.Size = UDim2.new(0, 80, 0, 30); BoostBtn.Position = UDim2.new(0.5, -40, 0, 65)
+        BoostBtn.BackgroundColor3 = Color3.fromRGB(255, 150, 0); BoostBtn.BackgroundTransparency = 0.7
+        BoostBtn.Text = "BOOST"; BoostBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        BoostBtn.TextSize = 12; BoostBtn.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", BoostBtn).CornerRadius = UDim.new(0, 8)
+
+        -- Anti-Aim Section
+        local AntiAimSection = Instance.new("Frame", Content)
+        AntiAimSection.Size = UDim2.new(1, 0, 0, 220); AntiAimSection.Position = UDim2.new(0, 0, 0, 220)
+        AntiAimSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40); AntiAimSection.BackgroundTransparency = 0.5
+        AntiAimSection.BorderSizePixel = 0
+        Instance.new("UICorner", AntiAimSection).CornerRadius = UDim.new(0, 15)
+
+        local AntiAimTitle = Instance.new("TextLabel", AntiAimSection)
+        AntiAimTitle.Size = UDim2.new(1, -20, 0, 25); AntiAimTitle.Position = UDim2.new(0, 10, 0, 10)
+        AntiAimTitle.BackgroundTransparency = 1; AntiAimTitle.Text = "ANTI-AIM // PITCH"
+        AntiAimTitle.TextColor3 = Color3.fromRGB(255, 50, 150); AntiAimTitle.TextSize = 13
+        AntiAimTitle.Font = Enum.Font.GothamBlack; AntiAimTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+        local AntiAimToggle = Instance.new("TextButton", AntiAimSection)
+        AntiAimToggle.Name = "AntiAimToggle"; AntiAimToggle.Size = UDim2.new(0, 50, 0, 26)
+        AntiAimToggle.Position = UDim2.new(1, -60, 0, 10); AntiAimToggle.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+        AntiAimToggle.Text = "OFF"; AntiAimToggle.TextColor3 = Color3.fromRGB(150, 150, 150)
+        AntiAimToggle.TextSize = 11; AntiAimToggle.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", AntiAimToggle).CornerRadius = UDim.new(0, 13)
+
+        local ModeBtn = Instance.new("TextButton", AntiAimSection)
+        ModeBtn.Name = "ModeBtn"; ModeBtn.Size = UDim2.new(0, 100, 0, 28)
+        ModeBtn.Position = UDim2.new(0, 15, 0, 65); ModeBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        ModeBtn.Text = "Jitter"; ModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        ModeBtn.TextSize = 12; ModeBtn.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", ModeBtn).CornerRadius = UDim.new(0, 8)
+
+        local IntensitySlider = Instance.new("Frame", AntiAimSection)
+        IntensitySlider.Size = UDim2.new(1, -30, 0, 6); IntensitySlider.Position = UDim2.new(0, 15, 0, 125)
+        IntensitySlider.BackgroundColor3 = Color3.fromRGB(20, 20, 30); IntensitySlider.BorderSizePixel = 0
+
+        local IntensityValue = Instance.new("TextLabel", AntiAimSection)
+        IntensityValue.Name = "IntensityValue"; IntensityValue.Size = UDim2.new(0, 40, 0, 20)
+        IntensityValue.Position = UDim2.new(1, -55, 0, 100); IntensityValue.BackgroundTransparency = 1
+        IntensityValue.Text = "15°"; IntensityValue.TextColor3 = Color3.fromRGB(255, 50, 150)
+        IntensityValue.TextSize = 12; IntensityValue.Font = Enum.Font.GothamBlack
+        IntensityValue.TextXAlignment = Enum.TextXAlignment.Right
+
+        local IntensityFill = Instance.new("Frame", IntensitySlider)
+        IntensityFill.Size = UDim2.new(0.15, 0, 1, 0); IntensityFill.BackgroundColor3 = Color3.fromRGB(255, 50, 150)
+        IntensityFill.BorderSizePixel = 0
+
+        local IntensityKnob = Instance.new("TextButton", IntensitySlider)
+        IntensityKnob.Size = UDim2.new(0, 16, 0, 16); IntensityKnob.Position = UDim2.new(0.15, -8, 0.5, -8)
+        IntensityKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); IntensityKnob.Text = ""
+
+        local AASpeedSlider = Instance.new("Frame", AntiAimSection)
+        AASpeedSlider.Size = UDim2.new(1, -30, 0, 6); AASpeedSlider.Position = UDim2.new(0, 15, 0, 170)
+        AASpeedSlider.BackgroundColor3 = Color3.fromRGB(20, 20, 30); AASpeedSlider.BorderSizePixel = 0
+
+        local AASpeedValue = Instance.new("TextLabel", AntiAimSection)
+        AASpeedValue.Size = UDim2.new(0, 40, 0, 20); AASpeedValue.Position = UDim2.new(1, -55, 0, 145)
+        AASpeedValue.BackgroundTransparency = 1; AASpeedValue.Text = "5"
+        AASpeedValue.TextColor3 = Color3.fromRGB(255, 50, 150); AASpeedValue.TextSize = 12
+        AASpeedValue.Font = Enum.Font.GothamBlack; AASpeedValue.TextXAlignment = Enum.TextXAlignment.Right
+
+        local AASpeedFill = Instance.new("Frame", AASpeedSlider)
+        AASpeedFill.Size = UDim2.new(0.25, 0, 1, 0); AASpeedFill.BackgroundColor3 = Color3.fromRGB(255, 50, 150)
+        AASpeedFill.BorderSizePixel = 0
+
+        local AASpeedKnob = Instance.new("TextButton", AASpeedSlider)
+        AASpeedKnob.Size = UDim2.new(0, 16, 0, 16); AASpeedKnob.Position = UDim2.new(0.25, -8, 0.5, -8)
+        AASpeedKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); AASpeedKnob.Text = ""
+
+        local CarIcon = Instance.new("TextLabel", AntiAimSection)
+        CarIcon.Size = UDim2.new(0, 60, 0, 40); CarIcon.Position = UDim2.new(1, -75, 0, 55)
+        CarIcon.BackgroundTransparency = 1; CarIcon.Text = "⬆"
+        CarIcon.TextColor3 = Color3.fromRGB(255, 50, 150); CarIcon.TextSize = 24
+        CarIcon.Font = Enum.Font.GothamBlack
+
+        -- Spin Section
+        local SpinSection = Instance.new("Frame", Content)
+        SpinSection.Size = UDim2.new(1, 0, 0, 280); SpinSection.Position = UDim2.new(0, 0, 0, 450)
+        SpinSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40); SpinSection.BackgroundTransparency = 0.5
+        SpinSection.BorderSizePixel = 0
+        Instance.new("UICorner", SpinSection).CornerRadius = UDim.new(0, 15)
+
+        local SpinTitle = Instance.new("TextLabel", SpinSection)
+        SpinTitle.Size = UDim2.new(1, -20, 0, 25); SpinTitle.Position = UDim2.new(0, 10, 0, 10)
+        SpinTitle.BackgroundTransparency = 1; SpinTitle.Text = "SPINBOT // ROTATION"
+        SpinTitle.TextColor3 = Color3.fromRGB(100, 200, 255); SpinTitle.TextSize = 13
+        SpinTitle.Font = Enum.Font.GothamBlack; SpinTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+        local SpinToggle = Instance.new("TextButton", SpinSection)
+        SpinToggle.Name = "SpinToggle"; SpinToggle.Size = UDim2.new(0, 50, 0, 26)
+        SpinToggle.Position = UDim2.new(1, -60, 0, 10); SpinToggle.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+        SpinToggle.Text = "OFF"; SpinToggle.TextColor3 = Color3.fromRGB(150, 150, 150)
+        SpinToggle.TextSize = 11; SpinToggle.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", SpinToggle).CornerRadius = UDim.new(0, 13)
+
+        local RPMDisplay = Instance.new("TextLabel", SpinSection)
+        RPMDisplay.Size = UDim2.new(0, 100, 0, 30); RPMDisplay.Position = UDim2.new(0.5, -50, 0, 40)
+        RPMDisplay.BackgroundColor3 = Color3.fromRGB(10, 10, 20); RPMDisplay.BackgroundTransparency = 0.5
+        RPMDisplay.Text = "0 RPM"; RPMDisplay.TextColor3 = Color3.fromRGB(100, 200, 255)
+        RPMDisplay.TextSize = 18; RPMDisplay.Font = Enum.Font.GothamBlack
+        Instance.new("UICorner", RPMDisplay).CornerRadius = UDim.new(0, 8)
+
+        local AxisBtn = Instance.new("TextButton", SpinSection)
+        AxisBtn.Name = "AxisBtn"; AxisBtn.Size = UDim2.new(0, 100, 0, 28)
+        AxisBtn.Position = UDim2.new(0, 15, 0, 100); AxisBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        AxisBtn.Text = "Yaw"; AxisBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        AxisBtn.TextSize = 12; AxisBtn.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", AxisBtn).CornerRadius = UDim.new(0, 8)
+
+        local DirBtn = Instance.new("TextButton", SpinSection)
+        DirBtn.Name = "DirBtn"; DirBtn.Size = UDim2.new(0, 80, 0, 28)
+        DirBtn.Position = UDim2.new(0, 125, 0, 100); DirBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        DirBtn.Text = "CW"; DirBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        DirBtn.TextSize = 12; DirBtn.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", DirBtn).CornerRadius = UDim.new(0, 8)
+
+        local SpinSpeedSlider = Instance.new("Frame", SpinSection)
+        SpinSpeedSlider.Size = UDim2.new(1, -30, 0, 8); SpinSpeedSlider.Position = UDim2.new(0, 15, 0, 165)
+        SpinSpeedSlider.BackgroundColor3 = Color3.fromRGB(20, 20, 30); SpinSpeedSlider.BorderSizePixel = 0
+
+        local SpinSpeedValue = Instance.new("TextLabel", SpinSection)
+        SpinSpeedValue.Size = UDim2.new(0, 50, 0, 20); SpinSpeedValue.Position = UDim2.new(1, -65, 0, 140)
+        SpinSpeedValue.BackgroundTransparency = 1; SpinSpeedValue.Text = "20 RPS"
+        SpinSpeedValue.TextColor3 = Color3.fromRGB(100, 200, 255); SpinSpeedValue.TextSize = 12
+        SpinSpeedValue.Font = Enum.Font.GothamBlack; SpinSpeedValue.TextXAlignment = Enum.TextXAlignment.Right
+
+        local SpinSpeedFill = Instance.new("Frame", SpinSpeedSlider)
+        SpinSpeedFill.Size = UDim2.new(0.2, 0, 1, 0); SpinSpeedFill.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+        SpinSpeedFill.BorderSizePixel = 0
+
+        local SpinSpeedKnob = Instance.new("TextButton", SpinSpeedSlider)
+        SpinSpeedKnob.Size = UDim2.new(0, 18, 0, 18); SpinSpeedKnob.Position = UDim2.new(0.2, -9, 0.5, -9)
+        SpinSpeedKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255); SpinSpeedKnob.Text = ""
+
+        local JitterBtn = Instance.new("TextButton", SpinSection)
+        JitterBtn.Name = "JitterBtn"; JitterBtn.Size = UDim2.new(0, 120, 0, 30)
+        JitterBtn.Position = UDim2.new(0.5, -60, 0, 195); JitterBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+        JitterBtn.Text = "JITTER: OFF"; JitterBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        JitterBtn.TextSize = 12; JitterBtn.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", JitterBtn).CornerRadius = UDim.new(0, 8)
+
+        local SpinnerFrame = Instance.new("Frame", SpinSection)
+        SpinnerFrame.Size = UDim2.new(0, 80, 0, 80); SpinnerFrame.Position = UDim2.new(1, -95, 0, 80)
+        SpinnerFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30); SpinnerFrame.BorderSizePixel = 0
+        Instance.new("UICorner", SpinnerFrame).CornerRadius = UDim.new(1, 0)
+
+        local SpinnerIcon = Instance.new("TextLabel", SpinnerFrame)
+        SpinnerIcon.Size = UDim2.new(1, 0, 1, 0); SpinnerIcon.BackgroundTransparency = 1
+        SpinnerIcon.Text = "⟳"; SpinnerIcon.TextColor3 = Color3.fromRGB(100, 200, 255)
+        SpinnerIcon.TextSize = 40; SpinnerIcon.Font = Enum.Font.GothamBlack
+
+        local SpinnerGlow = Instance.new("ImageLabel", SpinnerFrame)
+        SpinnerGlow.Size = UDim2.new(1.5, 0, 1.5, 0); SpinnerGlow.Position = UDim2.new(-0.25, 0, -0.25, 0)
+        SpinnerGlow.BackgroundTransparency = 1; SpinnerGlow.Image = "rbxassetid://10822646377"
+        SpinnerGlow.ImageColor3 = Color3.fromRGB(100, 200, 255); SpinnerGlow.ImageTransparency = 1
+
+        -- Keybind info
+        local KeybindSection = Instance.new("Frame", Content)
+        KeybindSection.Size = UDim2.new(1, 0, 0, 100); KeybindSection.Position = UDim2.new(0, 0, 0, 740)
+        KeybindSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40); KeybindSection.BackgroundTransparency = 0.5
+        KeybindSection.BorderSizePixel = 0
+        Instance.new("UICorner", KeybindSection).CornerRadius = UDim.new(0, 15)
+
+        local KeybindText = Instance.new("TextLabel", KeybindSection)
+        KeybindText.Size = UDim2.new(1, -20, 1, -15); KeybindText.Position = UDim2.new(0, 10, 0, 10)
+        KeybindText.BackgroundTransparency = 1
+        KeybindText.Text = "[H] Toggle Flight\n[Space/Ctrl] Up/Down  |  [Shift] Boost\nAnti-Aim: Pitch jitter  |  Spinbot: Rapid rotation"
+        KeybindText.TextColor3 = Color3.fromRGB(150, 150, 150); KeybindText.TextSize = 11
+        KeybindText.Font = Enum.Font.Gotham; KeybindText.TextXAlignment = Enum.TextXAlignment.Left
+
+        -- ── Logic ────────────────────────────────────────────────
+        local function UpdatePowerVisual()
+            if CarFlyConfig.Enabled then
+                PowerBtn.Text = "ON"; PowerBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+                PowerStroke.Color = Color3.fromRGB(0, 255, 150)
+                StatusText.Text = "CONNECTED"; StatusText.TextColor3 = Color3.fromRGB(0, 255, 150)
+                StatusDot.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+                task.spawn(function()
+                    while CarFlyConfig.Enabled do
+                        for i = 30, 80, 5 do
+                            if not CarFlyConfig.Enabled then break end
+                            Glow.ImageTransparency = i / 100; task.wait(0.1)
+                        end
+                        for i = 80, 30, -5 do
+                            if not CarFlyConfig.Enabled then break end
+                            Glow.ImageTransparency = i / 100; task.wait(0.1)
+                        end
+                    end
+                end)
+            else
+                PowerBtn.Text = "OFF"; PowerBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+                PowerStroke.Color = Color3.fromRGB(100, 100, 100)
+                StatusText.Text = "DISCONNECTED"; StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+                StatusDot.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+                Glow.ImageTransparency = 1
+            end
+        end
+
+        -- Dragging
+        local dragging, dragStart, startPos, dragInput = false, nil, nil, nil
+        Header.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true; dragStart = input.Position; startPos = Main.Position
+            end
+        end)
+        Header.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+        end)
+        Svc.UIS.InputChanged:Connect(function(input)
+            if input == dragInput and dragging then
+                local d = input.Position - dragStart
+                Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+            end
+        end)
+        Svc.UIS.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+        end)
+
+        CloseBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+        PowerBtn.MouseButton1Click:Connect(function()
+            CarFlyConfig.Enabled = not CarFlyConfig.Enabled; UpdatePowerVisual()
+        end)
+        AntiAimToggle.MouseButton1Click:Connect(function()
+            CarFlyConfig.AntiAimEnabled = not CarFlyConfig.AntiAimEnabled
+            AntiAimToggle.Text = CarFlyConfig.AntiAimEnabled and "ON" or "OFF"
+            AntiAimToggle.BackgroundColor3 = CarFlyConfig.AntiAimEnabled and Color3.fromRGB(255, 50, 150) or Color3.fromRGB(60, 60, 70)
+        end)
+        local modes = {"Jitter","Sine","Random"}; local modeIdx = 1
+        ModeBtn.MouseButton1Click:Connect(function()
+            modeIdx = modeIdx % #modes + 1; CarFlyConfig.AntiAimMode = modes[modeIdx]; ModeBtn.Text = modes[modeIdx]
+        end)
+        SpinToggle.MouseButton1Click:Connect(function()
+            CarFlyConfig.SpinEnabled = not CarFlyConfig.SpinEnabled
+            SpinToggle.Text = CarFlyConfig.SpinEnabled and "ON" or "OFF"
+            SpinToggle.BackgroundColor3 = CarFlyConfig.SpinEnabled and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(60, 60, 70)
+            if CarFlyConfig.SpinEnabled then
+                task.spawn(function()
+                    while CarFlyConfig.SpinEnabled do
+                        SpinnerIcon.Rotation = (SpinnerIcon.Rotation + 15 * CarFlyConfig.SpinDirection) % 360
+                        SpinnerGlow.ImageTransparency = 0.5 + math.sin(tick() * 10) * 0.3
+                        task.wait(0.03)
+                    end
+                    SpinnerGlow.ImageTransparency = 1
+                end)
+            end
+        end)
+        local axes = {"Yaw","Pitch","Roll","All"}; local axisIdx = 1
+        AxisBtn.MouseButton1Click:Connect(function()
+            axisIdx = axisIdx % #axes + 1; CarFlyConfig.SpinAxis = axes[axisIdx]; AxisBtn.Text = axes[axisIdx]
+        end)
+        DirBtn.MouseButton1Click:Connect(function()
+            CarFlyConfig.SpinDirection = -CarFlyConfig.SpinDirection
+            DirBtn.Text = CarFlyConfig.SpinDirection == 1 and "CW" or "CCW"
+        end)
+        JitterBtn.MouseButton1Click:Connect(function()
+            CarFlyConfig.SpinJitter = not CarFlyConfig.SpinJitter
+            JitterBtn.Text = CarFlyConfig.SpinJitter and "JITTER: ON" or "JITTER: OFF"
+            JitterBtn.TextColor3 = CarFlyConfig.SpinJitter and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(150, 150, 150)
+        end)
+
+        local function SetupSlider(knob, fill, valueLabel, min, max, suffix, configKey, isDecimal)
+            local sliding = false
+            local function Update(input)
+                local pos = math.clamp((input.Position.X - knob.Parent.AbsolutePosition.X) / knob.Parent.AbsoluteSize.X, 0, 1)
+                fill.Size = UDim2.new(pos, 0, 1, 0)
+                knob.Position = UDim2.new(pos, -9, 0.5, -9)
+                local value = min + (max - min) * pos
+                value = isDecimal and math.floor(value * 10) / 10 or math.floor(value)
+                CarFlyConfig[configKey] = value
+                valueLabel.Text = value .. suffix
+            end
+            knob.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true end end)
+            knob.Parent.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true; Update(i) end end)
+            Svc.UIS.InputChanged:Connect(function(i) if sliding and i.UserInputType == Enum.UserInputType.MouseMovement then Update(i) end end)
+            Svc.UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end end)
+        end
+
+        SetupSlider(SpeedKnob,      SpeedFill,      SpeedValue,      0,   500, "",     "Speed")
+        SetupSlider(IntensityKnob,  IntensityFill,  IntensityValue,  0,   45,  "°",    "AntiAimIntensity")
+        SetupSlider(AASpeedKnob,    AASpeedFill,    AASpeedValue,    0.1, 20,  "",     "AntiAimSpeed",  true)
+        SetupSlider(SpinSpeedKnob,  SpinSpeedFill,  SpinSpeedValue,  1,   100, " RPS", "SpinSpeed")
+
+        task.spawn(function()
+            while task.wait(0.05) do
+                if CarFlyConfig.AntiAimEnabled then
+                    local t = tick() * CarFlyConfig.AntiAimSpeed
+                    local pitch = 0
+                    if CarFlyConfig.AntiAimMode == "Sine" then
+                        pitch = math.sin(t) * CarFlyConfig.AntiAimIntensity
+                    elseif CarFlyConfig.AntiAimMode == "Jitter" then
+                        pitch = math.random(-CarFlyConfig.AntiAimIntensity, CarFlyConfig.AntiAimIntensity)
+                    elseif CarFlyConfig.AntiAimMode == "Random" then
+                        pitch = (math.noise(t * 0.5) * 2 - 1) * CarFlyConfig.AntiAimIntensity
+                    end
+                    if pitch > 5 then CarIcon.Text = "⬆"; CarIcon.TextColor3 = Color3.fromRGB(0, 255, 100)
+                    elseif pitch < -5 then CarIcon.Text = "⬇"; CarIcon.TextColor3 = Color3.fromRGB(255, 50, 50)
+                    else CarIcon.Text = "➡"; CarIcon.TextColor3 = Color3.fromRGB(255, 50, 150) end
+                else
+                    CarIcon.Text = "➡"; CarIcon.TextColor3 = Color3.fromRGB(100, 100, 100)
+                end
+            end
+        end)
+
+        task.spawn(function()
+            while task.wait(0.1) do
+                if CarFlyConfig.SpinEnabled then
+                    local rpm = CarFlyConfig.SpinSpeed * 60 * (CarFlyConfig.SpinJitter and math.random(80, 120) / 100 or 1)
+                    RPMDisplay.Text = math.floor(rpm) .. " RPM"
+                else
+                    RPMDisplay.Text = "0 RPM"
+                end
+            end
+        end)
+
+        return ScreenGui
+    end
+
+    local _carFlyUI      = nil
+    local _cfAntiAimOff  = 0
+    local _cfSpinAngle   = 0
+
+    local function GetCurrentCar()
+        for _, obj in pairs(Svc.WS:GetChildren()) do
+            local chassis = obj:FindFirstChild("Chassis")
+            local config  = obj:FindFirstChild("Configuration")
+            if chassis and chassis:IsA("BasePart") and config then
+                local dv = config:FindFirstChild("Driver")
+                if dv and dv:IsA("ObjectValue") and dv.Value == LocalPlayer then
+                    return chassis
+                end
+            end
+        end
+        return nil
+    end
+
+    _carFlyUI = CreateCarFlyUI()
+
+    Svc.Run.Heartbeat:Connect(function(dt)
+        if not CarFlyConfig.Enabled then
+            _cfAntiAimOff = 0; _cfSpinAngle = 0; return
+        end
+        local chassis = GetCurrentCar()
+        if not chassis then return end
+
+        local cam   = Camera
+        local cd    = cam.CFrame.LookVector
+        local speed = CarFlyConfig.Speed
+        if Svc.UIS:IsKeyDown(Enum.KeyCode.LeftShift) then speed = speed * CarFlyConfig.BoostMultiplier end
+
+        local vert = 0
+        if CarFlyConfig.VerticalControl then
+            if Svc.UIS:IsKeyDown(Enum.KeyCode.Space)       then vert =  speed * 0.5 end
+            if Svc.UIS:IsKeyDown(Enum.KeyCode.LeftControl) then vert = -speed * 0.5 end
+        end
+
+        chassis.AssemblyLinearVelocity = Vector3.new(cd.X * speed, cd.Y * speed + vert, cd.Z * speed)
+
+        local hd = Vector3.new(cd.X, 0, cd.Z)
+        local baseRot = (hd.Magnitude > 0.1) and CFrame.lookAt(Vector3.zero, hd) or CFrame.new()
+
+        if CarFlyConfig.AntiAimEnabled then
+            local t = tick() * CarFlyConfig.AntiAimSpeed
+            if CarFlyConfig.AntiAimMode == "Sine" then
+                _cfAntiAimOff = math.sin(t) * math.rad(CarFlyConfig.AntiAimIntensity)
+            elseif CarFlyConfig.AntiAimMode == "Jitter" then
+                if math.random() < 0.1 then
+                    _cfAntiAimOff = (math.random() * 2 - 1) * math.rad(CarFlyConfig.AntiAimIntensity)
+                end
+            elseif CarFlyConfig.AntiAimMode == "Random" then
+                _cfAntiAimOff = (math.noise(t * 0.5) * 2 - 1) * math.rad(CarFlyConfig.AntiAimIntensity)
+            end
+        else
+            _cfAntiAimOff = 0
+        end
+
+        local pitchCF = CFrame.Angles(_cfAntiAimOff, 0, 0)
+
+        if CarFlyConfig.SpinEnabled then
+            local ss = CarFlyConfig.SpinSpeed * 360 * dt * CarFlyConfig.SpinDirection
+            if CarFlyConfig.SpinJitter then ss = ss * (0.8 + math.random() * 0.4) end
+            _cfSpinAngle = (_cfSpinAngle + ss) % 360
+            local sa = math.rad(_cfSpinAngle)
+            local spinCF = CFrame.new()
+            if     CarFlyConfig.SpinAxis == "Yaw"   then spinCF = CFrame.Angles(0, sa, 0)
+            elseif CarFlyConfig.SpinAxis == "Pitch" then spinCF = CFrame.Angles(sa, 0, 0)
+            elseif CarFlyConfig.SpinAxis == "Roll"  then spinCF = CFrame.Angles(0, 0, sa)
+            elseif CarFlyConfig.SpinAxis == "All"   then spinCF = CFrame.Angles(sa*0.7, sa, sa*0.5) end
+            chassis.CFrame = CFrame.new(chassis.Position) * baseRot * pitchCF * spinCF
+        else
+            chassis.CFrame = CFrame.new(chassis.Position) * baseRot * pitchCF
+        end
+        chassis.AssemblyAngularVelocity = Vector3.zero
+    end)
+
+    Svc.UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == CarFlyConfig.Keybind then
+            CarFlyConfig.Enabled = not CarFlyConfig.Enabled
+        end
+    end)
+
+    -- Obsidian tab button to reopen UI if closed
+    local CFGroup = Tabs.Exploit:AddLeftGroupbox("Car Fly")
+    CFGroup:AddToggle("CarFlyEnabled", {Text="Enable Car Fly", Default=false})
+        :AddKeyPicker("CarFlyKey", {Default="H", NoUI=false, Text="Toggle Car Fly", Mode="Toggle"})
+    Toggles.CarFlyEnabled:OnChanged(function()
+        CarFlyConfig.Enabled = Toggles.CarFlyEnabled.Value
+    end)
+    Options.CarFlyKey:OnClick(function()
+        Toggles.CarFlyEnabled:SetValue(not Toggles.CarFlyEnabled.Value)
+    end)
+    CFGroup:AddButton("Open Car Fly UI", function()
+        local existing = Svc.CG:FindFirstChild("CarFlyController")
+        if existing then existing:Destroy() end
+        _carFlyUI = CreateCarFlyUI()
+    end)
+
+
      do
     local dcs_ok, dcs = pcall(function()
         return require(Svc.RS.EmberSharedLibrary.GameShared.Services["DayCycleService.service"])
@@ -1659,6 +2272,14 @@ end
             pcall(function() StopAntiAim() end)
             pcall(function() StopYaw() end)
             pcall(function() ToggleInstantAim(false) end)
+            pcall(function() StopAntiAim() end)
+            pcall(function() StopYaw() end)
+            pcall(function() ToggleInstantAim(false) end)
+            pcall(function()
+                CarFlyConfig.Enabled = false
+                local ui = Svc.CG:FindFirstChild("CarFlyController")
+                if ui then ui:Destroy() end
+            end)
             Library.Unloaded = true
         end)
 
